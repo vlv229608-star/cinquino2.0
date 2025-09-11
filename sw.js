@@ -1,4 +1,4 @@
-const CACHE_NAME = 'segnapunti-cache-v1';
+const CACHE_NAME = 'segnapunti-cache-v2';
 const ASSETS = [
   '/',
   '/index.html',
@@ -29,3 +29,4 @@ self.addEventListener('fetch', (e) => {
     );
   }
 });
+
