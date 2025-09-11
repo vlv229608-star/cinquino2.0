@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Segnapunti Briscola Chiamata</title>
+  <meta name="theme-color" content="#0f766e" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='100%25' height='100%25' fill='%230f766e'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='120' fill='white'%3ES%3C/text%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Segnapunti</h1>
+    <div class="totals">
+      <div><strong>Totale Positivi:</strong> <span id="sum-positive">0</span></div>
+      <div><strong>Totale Negativi:</strong> <span id="sum-negative">0</span></div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Setup Giocatori -->
+    <section class="card" id="setup-card">
+      <h2>Impostazione partita</h2>
+      <div class="row">
+        <label>Numero giocatori (5–8):</label>
+        <input id="player-count" type="number" min="5" max="8" value="5" />
+      </div>
+      <div id="players-list"></div>
+      <div class="row">
+        <button id="add-players">Popola nomi</button>
+        <button id="start-game" class="primary">Avvia partita</button>
+        <button id="clear-game" class="danger">Nuova partita</button>
+      </div>
+      <p class="help">Suggerimento: inserisci fino a 8 nomi. In ogni mano giocano sempre 5 persone.</p>
+    </section>
+
+    <!-- Stato Giocatori -->
+    <section class="card hidden" id="status-card">
+      <h2>Giocatori e punteggi</h2>
+      <div id="scoreboard"></div>
+      <div class="row space-between">
+        <div>
+          <button id="export-game">Esporta JSON</button>
+          <label class="file">
+            <input type="file" id="import-game" accept="application/json" />
+            Importa JSON
+          </label>
+        </div>
+        <button id="undo-last" class="secondary">Annulla ultima mano</button>
+      </div>
+    </section>
+
+    <!-- Nuova Mano -->
+    <section class="card hidden" id="round-card">
+      <h2>Nuova mano</h2>
+      <div class="row">
+        <label>Giocatori attivi (5):</label>
+        <div id="active-players" class="chips"></div>
+        <button id="edit-active" class="secondary">Modifica</button>
+      </div>
+
+      <div class="row">
+        <label>Chiamatore:</label>
+        <select id="caller"></select>
+      </div>
+      <div class="row">
+        <label>Compagno:</label>
+        <select id="partner"></select>
+      </div>
+
+      <div class="row">
+        <label>Chiamata:</label>
+        <input id="call-value" type="number" inputmode="numeric" min="76" max="120" step="1" value="80" />
+        <span class="hint">Valori ammessi: 76–115 oppure 120</span>
+      </div>
+
+      <div class="row">
+        <label class="switch">
+          <input type="checkbox" id="cappotto" />
+          <span> Cappotto (raddoppia punti, vincono solo Chiamatore+Compagno)</span>
+        </label>
+      </div>
+
+      <fieldset class="row">
+        <legend>Esito</legend>
+        <label><input type="radio" name="winners" value="called" checked /> Chiamata vinta (Chiamatore+Compagno)</label>
+        <label><input type="radio" name="winners" value="poor" id="poor-win-radio" /> Poveri vincono</label>
+      </fieldset>
+
+      <div class="row">
+        <button id="save-round" class="primary">Registra mano</button>
+      </div>
+
+      <div class="row">
+        <strong>Panchina prossima mano (auto):</strong>
+        <div id="bench-next" class="chips"></div>
+      </div>
+    </section>
+
+    <!-- Storico -->
+    <section class="card hidden" id="history-card">
+      <h2>Storico mani</h2>
+      <div class="table-wrapper">
+        <table id="history-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Chiamata</th>
+              <th>Cappotto</th>
+              <th>Vincitori</th>
+              <th>Chiamatore</th>
+              <th>Compagno</th>
+              <th>Poveri</th>
+              <th>Panchina</th>
+              <th>Punti (Δ)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Dialog: modifica attivi -->
+  <dialog id="active-dialog">
+    <h3>Seleziona i 5 giocatori attivi</h3>
+    <div id="active-dialog-list" class="list"></div>
+    <div class="row right">
+      <button id="cancel-active">Annulla</button>
+      <button id="confirm-active" class="primary">Conferma</button>
+    </div>
+  </dialog>
+
+  <footer class="app-footer">
+    <small>Segnapunti © 2025</small>
+  </footer>
+
+  <script>
+    /* ======= State ======= */
+    const LS_KEY = 'segnapunti_v1';
+    let state = {
+      players: [], // [{id,name,total}]
+      rounds: [],  // [{...}]
+      activeIds: [], // 5 ids in gioco
+    };
+
+    /* ======= Utils ======= */
+    const byId = (id) => document.getElementById(id);
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+    const fmt = (n) => Number.isFinite(n) ? (Math.round(n * 10) / 10).toFixed(1) : '-';
+    const clone = (o) => JSON.parse(JSON.stringify(o));
+    const findPlayer = (id) => state.players.find(p => p.id === id);
+    const nameOf = (id) => findPlayer(id)?.name || '—';
+
+    function saveState() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      renderAll();
+    }
+    function loadState() {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.players && parsed?.rounds) {
+            state = parsed;
+          }
+        } catch {}
+      }
+    }
+
+    function initPlayersUI() {
+      const container = byId('players-list');
+      container.innerHTML = '';
+      const count = Number(byId('player-count').value || 5);
+      const cur = state.players.length || count;
+      const n = Math.max(5, Math.min(8, count));
+      const needed = n;
+
+      // Build inputs for names (up to needed)
+      for (let i = 0; i < needed; i++) {
+        const val = state.players[i]?.name || '';
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <label>Giocatore ${i+1}:</label>
+          <input type="text" id="pname-${i}" placeholder="Nome" value="${val}" />
+        `;
+        container.appendChild(row);
+      }
+    }
+
+    function populateDefaultNames() {
+      const n = Number(byId('player-count').value || 5);
+      for (let i = 0; i < n; i++) {
+        const input = byId('pname-' + i);
+        if (input && !input.value.trim()) {
+          input.value = 'Giocatore ' + (i + 1);
+        }
+      }
+    }
+
+    function startGame() {
+      const n = Number(byId('player-count').value || 5);
+      if (n < 5 || n > 8) {
+        alert('Il numero di giocatori deve essere tra 5 e 8.');
+        return;
+      }
+      const players = [];
+      for (let i = 0; i < n; i++) {
+        const name = byId('pname-' + i)?.value.trim();
+        if (!name) {
+          alert('Inserisci tutti i nomi.');
+          return;
+        }
+        players.push({ id: crypto.randomUUID(), name, total: 0 });
+      }
+      state.players = players;
+      state.rounds = [];
+      // Attivi iniziali: primi 5
+      state.activeIds = players.slice(0, 5).map(p => p.id);
+      saveState();
+    }
+
+    function clearGame() {
+      if (!confirm('Sicuro di voler azzerare la partita?')) return;
+      localStorage.removeItem(LS_KEY);
+      state = { players: [], rounds: [], activeIds: [] };
+      renderAll();
+    }
+
+    /* ======= Scoring ======= */
+    function basePointsForCall(v) {
+      v = Number(v);
+      if (v >= 76 && v <= 80)   return { caller: 1, partner: 0.5, poor: 0.5 };
+      if (v >= 81 && v <= 85)   return { caller: 2, partner: 1,   poor: 1   };
+      if (v >= 86 && v <= 90)   return { caller: 3, partner: 1.5, poor: 1.5 };
+      if (v >= 91 && v <= 95)   return { caller: 4, partner: 2,   poor: 2   };
+      if (v >= 96 && v <= 100)  return { caller: 5, partner: 2.5, poor: 2.5 };
+      if (v >= 101 && v <= 105) return { caller: 6, partner: 3,   poor: 3   };
+      if (v >= 106 && v <= 110) return { caller: 7, partner: 3.5, poor: 3.5 };
+      if (v >= 111 && v <= 115) return { caller: 8, partner: 4,   poor: 4   };
+      if (v === 120)            return { caller:10, partner: 5,   poor: 5   };
+      return null; // 116–119 non ammessi (mancano specifiche)
+    }
+
+    function computeRoundPoints({ callValue, winners, cappotto, callerId, partnerId, activeIds }) {
+      const base = basePointsForCall(callValue);
+      if (!base) throw new Error('Valore chiamata non valido. Usa 76–115 oppure 120.');
+      const sign = (winners === 'called') ? +1 : -1;
+      const mult = cappotto ? 2 : 1;
+
+      const points = {};
+      const poorIds = activeIds.filter(id => id !== callerId && id !== partnerId);
+
+      // Assegna punti ai 5 attivi
+      for (const pid of activeIds) {
+        let val = 0;
+        if (pid === callerId) val = base.caller * sign;
+        else if (pid === partnerId) val = base.partner * sign;
+        else val = base.poor * (-sign);
+
+        points[pid] = val * mult;
+      }
+      return { points, poorIds };
+    }
+
+    /* ======= Rotation (bench next hand) ======= */
+    function computeNextBench(totalPlayers, { callerId, partnerId, poorIds }) {
+      if (totalPlayers <= 5) return [];
+      if (totalPlayers === 6) return [callerId];
+      if (totalPlayers === 7) return [callerId, partnerId];
+      if (totalPlayers === 8) return poorIds.slice(); // i 3 poveri
+      // fallback
+      const benchSize = totalPlayers - 5;
+      const available = [callerId, partnerId, ...poorIds];
+      return available.slice(0, benchSize);
+    }
+
+    function applyNextActiveFromBench(benchIds) {
+      const allIds = state.players.map(p => p.id);
+      const activeNext = allIds.filter(id => !benchIds.includes(id));
+      // Dovrebbe essere 5
+      state.activeIds = activeNext.slice(0, 5);
+    }
+
+    /* ======= Render ======= */
+    function renderAll() {
+      // Toggle sezioni
+      const hasPlayers = state.players.length >= 5;
+      byId('setup-card').classList.toggle('hidden', hasPlayers);
+      byId('status-card').classList.toggle('hidden', !hasPlayers);
+      byId('round-card').classList.toggle('hidden', !hasPlayers);
+      byId('history-card').classList.toggle('hidden', !hasPlayers);
+
+      if (!hasPlayers) {
+        initPlayersUI();
+        return;
+      }
+
+      renderScoreboard();
+      renderActiveArea();
+      renderHistory();
+      updateTotals();
+    }
+
+    function renderScoreboard() {
+      const container = byId('scoreboard');
+      const rows = state.players.map(p => `
+        <div class="score-row ${state.activeIds.includes(p.id) ? 'active' : ''}">
+          <div class="name">${p.name}</div>
+          <div class="total">${fmt(p.total)}</div>
+        </div>
+      `).join('');
+      container.innerHTML = `
+        <div class="score-header">
+          <div class="name">Giocatore</div>
+          <div class="total">Totale</div>
+        </div>
+        ${rows}
+      `;
+    }
+
+    function renderActiveArea() {
+      // Chips attivi
+      const chips = state.activeIds.map(id => `<span class="chip">${nameOf(id)}</span>`).join('');
+      byId('active-players').innerHTML = chips;
+
+      // Popola select caller/partner
+      const callerSel = byId('caller');
+      const partnerSel = byId('partner');
+      const options = state.activeIds.map(id => `<option value="${id}">${nameOf(id)}</option>`).join('');
+      callerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
+      partnerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
+
+      // Aggiorna bench prossima mano (previsione in base alle scelte correnti se presenti)
+      updateBenchPreview();
+    }
+
+    function getWinnersValue() {
+      return $('input[name="winners"]:checked')?.value || 'called';
+    }
+
+    function updateBenchPreview() {
+      const callerId = byId('caller').value || null;
+      const partnerId = byId('partner').value || null;
+      if (!callerId || !partnerId || callerId === partnerId) {
+        byId('bench-next').innerHTML = `<span class="chip ghost">Scegli chiamatore e compagno per vedere la panchina</span>`;
+        return;
+      }
+      const poorIds = state.activeIds.filter(id => id !== callerId && id !== partnerId);
+      const bench = computeNextBench(state.players.length, { callerId, partnerId, poorIds });
+      byId('bench-next').innerHTML = bench.length
+        ? bench.map(id => `<span class="chip warn">${nameOf(id)}</span>`).join('')
+        : `<span class="chip">Nessuno (siamo in 5)</span>`;
+    }
+
+    function renderHistory() {
+      const tbody = byId('history-table').querySelector('tbody');
+      tbody.innerHTML = '';
+      state.rounds.forEach((r, idx) => {
+        const poveriNames = r.roles.poorIds.map(nameOf).join(', ');
+        const benchNames = r.benchIds.map(nameOf).join(', ');
+        const delta = Object.entries(r.pointsApplied).map(([pid, v]) =>
+          `${nameOf(pid)}: ${fmt(v)}`
+        ).join(' · ');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${r.callValue}</td>
+          <td>${r.cappotto ? 'Sì' : 'No'}</td>
+          <td>${r.winners === 'called' ? 'Chiamata' : 'Poveri'}</td>
+          <td>${nameOf(r.roles.callerId)}</td>
+          <td>${nameOf(r.roles.partnerId)}</td>
+          <td>${poveriNames}</td>
+          <td>${benchNames}</td>
+          <td>${delta}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function updateTotals() {
+      const sumPos = state.players.reduce((a, p) => a + (p.total > 0 ? p.total : 0), 0);
+      const sumNegAbs = state.players.reduce((a, p) => a + (p.total < 0 ? -p.total : 0), 0);
+      byId('sum-positive').textContent = fmt(sumPos);
+      byId('sum-negative').textContent = fmt(sumNegAbs);
+    }
+
+    function recomputeTotals() {
+      state.players.forEach(p => p.total = 0);
+      for (const r of state.rounds) {
+        for (const [pid, val] of Object.entries(r.pointsApplied)) {
+          const pl = findPlayer(pid);
+          if (pl) pl.total += val;
+        }
+      }
+    }
+
+    /* ======= Handlers ======= */
+    function handleSaveRound() {
+      const activeIds = state.activeIds.slice();
+      if (activeIds.length !== 5) {
+        alert('Devono essere selezionati esattamente 5 giocatori attivi.');
+        return;
+      }
+
+      const callerId = byId('caller').value;
+      const partnerId = byId('partner').value;
+      if (!callerId || !partnerId) {
+        alert('Seleziona chiamatore e compagno.');
+        return;
+      }
+      if (callerId === partnerId) {
+        alert('Chiamatore e compagno devono essere diversi.');
+        return;
+      }
+
+      const callValue = Number(byId('call-value').value);
+      const base = basePointsForCall(callValue);
+      if (!base) {
+        alert('Chiamata non valida. Valori ammessi: 76–115 oppure 120.');
+        return;
+      }
+
+      const cappotto = byId('cappotto').checked;
+      const winners = getWinnersValue();
+
+      if (cappotto && winners === 'poor') {
+        alert('Con Cappotto possono vincere solo Chiamatore e Compagno.');
+        return;
+      }
+
+      const { points, poorIds } = computeRoundPoints({
+        callValue, winners, cappotto, callerId, partnerId, activeIds
+      });
+
+      // Applica punti ai giocatori
+      for (const [pid, val] of Object.entries(points)) {
+        const pl = findPlayer(pid);
+        if (pl) pl.total += val;
+      }
+
+      // Determina panchina prossima mano e imposta nuovi attivi
+      const benchIds = computeNextBench(state.players.length, { callerId, partnerId, poorIds });
+      applyNextActiveFromBench(benchIds);
+
+      // Salva round
+      const round = {
+        id: crypto.randomUUID(),
+        callValue, cappotto, winners,
+        roles: { callerId, partnerId, poorIds },
+        activeIds,
+        benchIds,
+        pointsApplied: points,
+        ts: Date.now()
+      };
+      state.rounds.push(round);
+      saveState();
+
+      // Reset selezioni ruolo
+      byId('caller').selectedIndex = 0;
+      byId('partner').selectedIndex = 0;
+      byId('cappotto').checked = false;
+      $('input[name="winners"][value="called"]').checked = true;
+      updateBenchPreview();
+    }
+
+    function handleUndoLast() {
+      if (!state.rounds.length) return;
+      if (!confirm('Annullare l’ultima mano?')) return;
+      state.rounds.pop();
+      // Ricostruisci totali e imposta attivi
+      recomputeTotals();
+
+      // Ripristina attivi: se esiste una mano restante, attivi = activeIds dell’ultima
+      if (state.rounds.length) {
+        state.activeIds = state.rounds[state.rounds.length - 1].activeIds.slice();
+      } else {
+        // prima mano: primi 5
+        state.activeIds = state.players.slice(0, 5).map(p => p.id);
+      }
+
+      saveState();
+    }
+
+    function openActiveDialog() {
+      const dlg = byId('active-dialog');
+      const list = byId('active-dialog-list');
+      const selected = new Set(state.activeIds);
+      const items = state.players.map(p => `
+        <label class="check">
+          <input type="checkbox" value="${p.id}" ${selected.has(p.id) ? 'checked' : ''} />
+          <span>${p.name}</span>
+        </label>
+      `).join('');
+      list.innerHTML = items;
+      dlg.showModal();
+    }
+    function confirmActiveDialog() {
+      const dlg = byId('active-dialog');
+      const ids = $$('#active-dialog-list input[type="checkbox"]:checked').map(i => i.value);
+      if (ids.length !== 5) {
+        alert('Seleziona esattamente 5 giocatori.');
+        return;
+      }
+      state.activeIds = ids;
+      dlg.close();
+      saveState();
+    }
+
+    function handleCappottoToggle() {
+      const cappotto = byId('cappotto').checked;
+      const poorRadio = byId('poor-win-radio');
+      poorRadio.disabled = cappotto;
+      if (cappotto && poorRadio.checked) {
+        $('input[name="winners"][value="called"]').checked = true;
+      }
+    }
+
+    function exportGame() {
+      const data = clone(state);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `segnapunti_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importGameFile(e) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (!Array.isArray(data.players) || !Array.isArray(data.rounds)) {
+            throw new Error('Formato non valido');
+          }
+          state = data;
+          saveState();
+        } catch (err) {
+          alert('Import fallito: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    /* ======= Events ======= */
+    byId('player-count').addEventListener('change', initPlayersUI);
+    byId('add-players').addEventListener('click', populateDefaultNames);
+    byId('start-game').addEventListener('click', startGame);
+    byId('clear-game').addEventListener('click', clearGame);
+
+    byId('save-round').addEventListener('click', handleSaveRound);
+    byId('undo-last').addEventListener('click', handleUndoLast);
+    byId('export-game').addEventListener('click', exportGame);
+    byId('import-game').addEventListener('change', importGameFile);
+
+    byId('edit-active').addEventListener('click', openActiveDialog);
+    byId('cancel-active').addEventListener('click', () => byId('active-dialog').close());
+    byId('confirm-active').addEventListener('click', confirmActiveDialog);
+
+    byId('caller').addEventListener('change', updateBenchPreview);
+    byId('partner').addEventListener('change', updateBenchPreview);
+    byId('cappotto').addEventListener('change', handleCappottoToggle);
+
+    // Init
+    loadState();
+    renderAll();
+
+    // PWA / SW
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
