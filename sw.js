@@ -1,14 +1,16 @@
-// Bump della cache: cambia questo nome quando pubblichi nuove versioni
-const CACHE_NAME = 'segnapunti-cache-v4';
+// Aggiorna questo nome quando pubblichi nuove versioni
+const CACHE_NAME = 'cinquino20-cache-v1';
 
-// Elenco asset precache con PERCORSI ASSOLUTI del progetto /segnapunti/
+// Asset precache (percorsi assoluti sul progetto /cinquino2.0/)
+const BASE = '/cinquino2.0';
 const ASSETS = [
-  '/segnapunti/index.html',
-  '/segnapunti/styles.css',
-  '/segnapunti/sw.js',
-  '/segnapunti/manifest.webmanifest',
-  '/segnapunti/icons/icon-192.png',
-  '/segnapunti/icons/icon-512.png'
+  `${BASE}/`,
+  `${BASE}/index.html`,
+  `${BASE}/styles.css`,
+  `${BASE}/sw.js`,
+  `${BASE}/manifest.webmanifest`,
+  `${BASE}/icons/icon-192.png`,
+  `${BASE}/icons/icon-512.png`
 ];
 
 self.addEventListener('install', (event) => {
@@ -21,18 +23,17 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // Elimina vecchie cache
+    // Pulisci vecchie cache
     const keys = await caches.keys();
     await Promise.all(
       keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve()))
     );
 
-    // Abilita la navigation preload (migliora caricamento su rete lenta)
+    // Abilita navigation preload se disponibile (migliora UX)
     if ('navigationPreload' in self.registration) {
       await self.registration.navigationPreload.enable();
     }
   })());
-
   self.clients.claim();
 });
 
@@ -40,11 +41,11 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // 1) Navigazioni (apertura/refresh di pagine): network-first con fallback a index.html
+  // 1) Navigazioni: network-first con fallback a index.html per SPA/GitHub Pages
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        // Se il browser ha già pre-caricato la risposta, usala
+        // Usa eventuale preload
         const preload = await event.preloadResponse;
         if (preload) return preload;
 
@@ -52,10 +53,15 @@ self.addEventListener('fetch', (event) => {
         const networkResp = await fetch(req);
         return networkResp;
       } catch (err) {
-        // Offline o errore → servi la index.html dal cache (SPA fallback)
+        // Offline/errore → rispondi con index.html dalla cache
         const cache = await caches.open(CACHE_NAME);
-        const cachedIndex = await cache.match('/segnapunti/index.html');
-        return cachedIndex || new Response('Offline', { status: 503, statusText: 'Offline' });
+
+        // Se si richiede esattamente /cinquino2.0/ mappa a index.html
+        const indexResp =
+          (url.pathname === `${BASE}/` && await cache.match(`${BASE}/index.html`)) ||
+          await cache.match(`${BASE}/index.html`);
+
+        return indexResp || new Response('Offline', { status: 503, statusText: 'Offline' });
       }
     })());
     return;
@@ -69,13 +75,12 @@ self.addEventListener('fetch', (event) => {
         // Aggiorna in background
         fetch(req).then((resp) => {
           if (resp && resp.ok) {
-            const copy = resp.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, resp.clone()));
           }
         }).catch(() => {});
         return cached;
       }
-      // Non in cache → rete e poi cache
+      // Non in cache → rete e poi memorizza
       const resp = await fetch(req);
       const copy = resp.clone();
       const cache = await caches.open(CACHE_NAME);
