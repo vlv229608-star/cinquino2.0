@@ -4,11 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Segnapunti Briscola Chiamata</title>
+
+  <!-- PWA -->
   <meta name="theme-color" content="#0f766e" />
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='100%25' height='100%25' fill='%230f766e'/%3E%3Ctext x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='120' fill='white'%3ES%3C/text%3E%3C/svg%3E">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <header class="app-header">
@@ -17,6 +21,8 @@
       <div><strong>Totale Positivi:</strong> <span id="sum-positive">0</span></div>
       <div><strong>Totale Negativi:</strong> <span id="sum-negative">0</span></div>
     </div>
+    <!-- NUOVO: reset visibile sempre -->
+    <button id="clear-game-top" class="danger small">Nuova partita</button>
   </header>
 
   <main class="container">
@@ -73,7 +79,7 @@
       <div class="row">
         <label>Chiamata:</label>
         <input id="call-value" type="number" inputmode="numeric" min="76" max="120" step="1" value="80" />
-        <span class="hint">Valori ammessi: 76–115 oppure 120</span>
+        <span class="hint">Valori ammessi: 76–120</span>
       </div>
 
       <div class="row">
@@ -175,12 +181,10 @@
       const container = byId('players-list');
       container.innerHTML = '';
       const count = Number(byId('player-count').value || 5);
-      const cur = state.players.length || count;
       const n = Math.max(5, Math.min(8, count));
-      const needed = n;
 
-      // Build inputs for names (up to needed)
-      for (let i = 0; i < needed; i++) {
+      // Build inputs for names (up to n)
+      for (let i = 0; i < n; i++) {
         const val = state.players[i]?.name || '';
         const row = document.createElement('div');
         row.className = 'row';
@@ -234,21 +238,22 @@
     /* ======= Scoring ======= */
     function basePointsForCall(v) {
       v = Number(v);
-      if (v >= 76 && v <= 80)   return { caller: 1, partner: 0.5, poor: 0.5 };
-      if (v >= 81 && v <= 85)   return { caller: 2, partner: 1,   poor: 1   };
-      if (v >= 86 && v <= 90)   return { caller: 3, partner: 1.5, poor: 1.5 };
-      if (v >= 91 && v <= 95)   return { caller: 4, partner: 2,   poor: 2   };
-      if (v >= 96 && v <= 100)  return { caller: 5, partner: 2.5, poor: 2.5 };
-      if (v >= 101 && v <= 105) return { caller: 6, partner: 3,   poor: 3   };
-      if (v >= 106 && v <= 110) return { caller: 7, partner: 3.5, poor: 3.5 };
-      if (v >= 111 && v <= 115) return { caller: 8, partner: 4,   poor: 4   };
-      if (v === 120)            return { caller:10, partner: 5,   poor: 5   };
-      return null; // 116–119 non ammessi (mancano specifiche)
+      if (v >= 76 && v <= 80)   return { caller: 1,  partner: 0.5, poor: 0.5 };
+      if (v >= 81 && v <= 85)   return { caller: 2,  partner: 1,   poor: 1   };
+      if (v >= 86 && v <= 90)   return { caller: 3,  partner: 1.5, poor: 1.5 };
+      if (v >= 91 && v <= 95)   return { caller: 4,  partner: 2,   poor: 2   };
+      if (v >= 96 && v <= 100)  return { caller: 5,  partner: 2.5, poor: 2.5 };
+      if (v >= 101 && v <= 105) return { caller: 6,  partner: 3,   poor: 3   };
+      if (v >= 106 && v <= 110) return { caller: 7,  partner: 3.5, poor: 3.5 };
+      if (v >= 111 && v <= 115) return { caller: 8,  partner: 4,   poor: 4   };
+      if (v >= 116 && v <= 119) return { caller: 9,  partner: 4.5, poor: 4.5 }; /* NUOVO */
+      if (v === 120)            return { caller:10, partner: 5,    poor: 5   };
+      return null;
     }
 
     function computeRoundPoints({ callValue, winners, cappotto, callerId, partnerId, activeIds }) {
       const base = basePointsForCall(callValue);
-      if (!base) throw new Error('Valore chiamata non valido. Usa 76–115 oppure 120.');
+      if (!base) throw new Error('Valore chiamata non valido. Usa 76–120.');
       const sign = (winners === 'called') ? +1 : -1;
       const mult = cappotto ? 2 : 1;
 
@@ -282,18 +287,19 @@
     function applyNextActiveFromBench(benchIds) {
       const allIds = state.players.map(p => p.id);
       const activeNext = allIds.filter(id => !benchIds.includes(id));
-      // Dovrebbe essere 5
       state.activeIds = activeNext.slice(0, 5);
     }
 
     /* ======= Render ======= */
     function renderAll() {
-      // Toggle sezioni
       const hasPlayers = state.players.length >= 5;
+
       byId('setup-card').classList.toggle('hidden', hasPlayers);
       byId('status-card').classList.toggle('hidden', !hasPlayers);
       byId('round-card').classList.toggle('hidden', !hasPlayers);
       byId('history-card').classList.toggle('hidden', !hasPlayers);
+      // Mostra tasto reset in header solo se c'è una partita in corso
+      byId('clear-game-top').classList.toggle('hidden', !hasPlayers);
 
       if (!hasPlayers) {
         initPlayersUI();
@@ -324,18 +330,15 @@
     }
 
     function renderActiveArea() {
-      // Chips attivi
       const chips = state.activeIds.map(id => `<span class="chip">${nameOf(id)}</span>`).join('');
       byId('active-players').innerHTML = chips;
 
-      // Popola select caller/partner
       const callerSel = byId('caller');
       const partnerSel = byId('partner');
       const options = state.activeIds.map(id => `<option value="${id}">${nameOf(id)}</option>`).join('');
       callerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
       partnerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
 
-      // Aggiorna bench prossima mano (previsione in base alle scelte correnti se presenti)
       updateBenchPreview();
     }
 
@@ -421,7 +424,7 @@
       const callValue = Number(byId('call-value').value);
       const base = basePointsForCall(callValue);
       if (!base) {
-        alert('Chiamata non valida. Valori ammessi: 76–115 oppure 120.');
+        alert('Chiamata non valida. Valori ammessi: 76–120.');
         return;
       }
 
@@ -437,17 +440,14 @@
         callValue, winners, cappotto, callerId, partnerId, activeIds
       });
 
-      // Applica punti ai giocatori
       for (const [pid, val] of Object.entries(points)) {
         const pl = findPlayer(pid);
         if (pl) pl.total += val;
       }
 
-      // Determina panchina prossima mano e imposta nuovi attivi
       const benchIds = computeNextBench(state.players.length, { callerId, partnerId, poorIds });
       applyNextActiveFromBench(benchIds);
 
-      // Salva round
       const round = {
         id: crypto.randomUUID(),
         callValue, cappotto, winners,
@@ -460,7 +460,6 @@
       state.rounds.push(round);
       saveState();
 
-      // Reset selezioni ruolo
       byId('caller').selectedIndex = 0;
       byId('partner').selectedIndex = 0;
       byId('cappotto').checked = false;
@@ -472,14 +471,11 @@
       if (!state.rounds.length) return;
       if (!confirm('Annullare l’ultima mano?')) return;
       state.rounds.pop();
-      // Ricostruisci totali e imposta attivi
       recomputeTotals();
 
-      // Ripristina attivi: se esiste una mano restante, attivi = activeIds dell’ultima
       if (state.rounds.length) {
         state.activeIds = state.rounds[state.rounds.length - 1].activeIds.slice();
       } else {
-        // prima mano: primi 5
         state.activeIds = state.players.slice(0, 5).map(p => p.id);
       }
 
@@ -555,6 +551,7 @@
     byId('add-players').addEventListener('click', populateDefaultNames);
     byId('start-game').addEventListener('click', startGame);
     byId('clear-game').addEventListener('click', clearGame);
+    byId('clear-game-top').addEventListener('click', clearGame);
 
     byId('save-round').addEventListener('click', handleSaveRound);
     byId('undo-last').addEventListener('click', handleUndoLast);
@@ -573,10 +570,10 @@
     loadState();
     renderAll();
 
-    // PWA / SW
+    // PWA / Service Worker (percorsi relativi per GitHub Pages)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {});
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
       });
     }
   </script>
