@@ -1,5 +1,5 @@
 // Aggiorna questo nome quando pubblichi nuove versioni
-const CACHE_NAME = 'cinquino20-cache-v3';
+const CACHE_NAME = 'cinquino20-cache-v4';
 
 // Asset precache (percorsi assoluti sul progetto /cinquino2.0/)
 const BASE = '/cinquino2.0';
@@ -89,4 +89,5 @@ self.addEventListener('fetch', (event) => {
     })());
   }
 });
+
 
