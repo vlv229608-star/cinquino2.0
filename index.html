@@ -141,19 +141,6 @@
 
   <footer class="app-footer">
     <small>Segnapunti © 2025</small>
-    <!-- Dialog: rinomina giocatore -->
-<dialog id="rename-player-dialog">
-  <h3>Rinomina giocatore</h3>
-  <input type="hidden" id="rename-player-id" />
-  <div class="row">
-    <label>Nuovo nome:</label>
-    <input type="text" id="rename-player-name" placeholder="Nuovo nome" />
-  </div>
-  <div class="row right">
-    <button id="cancel-rename-player">Annulla</button>
-    <button id="confirm-rename-player" class="primary">Salva</button>
-  </div>
-</dialog>
   </footer>
 
   <script>
@@ -189,18 +176,6 @@
         } catch {}
       }
     }
-    
-function migrateState() {
-    // Assicura proprietà removed e rimuove dagli attivi eventuali rimossi
-    state.players.forEach(p => {
-      if (typeof p.removed !== 'boolean') p.removed = false;
-    });
-    state.activeIds = state.activeIds.filter(id => {
-      const pl = findPlayer(id);
-      return pl && !pl.removed;
-    });
-  }
-    
 
     function initPlayersUI() {
       const container = byId('players-list');
@@ -244,7 +219,7 @@ function migrateState() {
           alert('Inserisci tutti i nomi.');
           return;
         }
-        players.push({ id: crypto.randomUUID(), name, total: 0, removed: false });
+        players.push({ id: crypto.randomUUID(), name, total: 0 });
       }
       state.players = players;
       state.rounds = [];
@@ -259,70 +234,6 @@ function migrateState() {
       state = { players: [], rounds: [], activeIds: [] };
       renderAll();
     }
-
-
-  function removePlayer(playerId) {
-    const p = findPlayer(playerId);
-    if (!p) return;
-    if (p.removed) {
-      alert('Questo giocatore è già stato rimosso.');
-      return;
-    }
-
-    const wasActive = state.activeIds.includes(p.id);
-    const msg = wasActive
-      ? `Stai rimuovendo "${p.name}" che è tra i 5 attivi.\n` +
-        `Il suo punteggio resterà congelato e dovrai selezionare nuovamente i 5 attivi.`
-      : `Stai rimuovendo "${p.name}". Il suo punteggio resterà congelato.`;
-    if (!confirm(msg)) return;
-
-    // Congela: impostiamo removed = true. Il totale rimane com'è.
-    p.removed = true;
-
-    // Toglilo dagli attivi
-    state.activeIds = state.activeIds.filter(id => id !== p.id);
-
-    // Se era selezionato come Chiamatore/Compagno nella UI corrente, azzera le select
-    if (byId('caller')?.value === p.id) byId('caller').selectedIndex = 0;
-    if (byId('partner')?.value === p.id) byId('partner').selectedIndex = 0;
-
-    // Mantieni integrità attivi
-    ensureActiveIntegrity();
-
-    saveState();
-  }
-
-
-
-  function openRenamePlayerDialog(playerId) {
-    const p = findPlayer(playerId);
-    if (!p) return;
-    byId('rename-player-id').value = p.id;
-    const input = byId('rename-player-name');
-    input.value = p.name;
-    byId('rename-player-dialog').showModal();
-    setTimeout(() => input.focus(), 0);
-  }
-
-  function confirmRenamePlayer() {
-    const id = byId('rename-player-id').value;
-    const newName = byId('rename-player-name').value.trim();
-    if (!newName) {
-      alert('Inserisci un nome valido.');
-      return;
-    }
-    const p = findPlayer(id);
-    if (!p) return;
-    p.name = newName;
-    byId('rename-player-dialog').close();
-    saveState();
-  }
-
-  function cancelRenamePlayer() {
-    byId('rename-player-dialog').close();
-  }
-
-
 
     /* ======= Scoring ======= */
     function basePointsForCall(v) {
@@ -373,11 +284,11 @@ function migrateState() {
       return available.slice(0, benchSize);
     }
 
- function applyNextActiveFromBench(benchIds) {
-  const allIds = nonRemovedPlayers().map(p => p.id);
-  const activeNext = allIds.filter(id => !benchIds.includes(id));
-  state.activeIds = activeNext.slice(0, 5);
-}
+    function applyNextActiveFromBench(benchIds) {
+      const allIds = state.players.map(p => p.id);
+      const activeNext = allIds.filter(id => !benchIds.includes(id));
+      state.activeIds = activeNext.slice(0, 5);
+    }
 
     /* ======= Render ======= */
     function renderAll() {
@@ -402,64 +313,33 @@ function migrateState() {
     }
 
     function renderScoreboard() {
-    const container = byId('scoreboard');
-    const rows = state.players.map(p => {
-      const isActive = state.activeIds.includes(p.id);
-      const removed = !!p.removed;
-      const actions = removed
-        ? `<span class="badge-removed">RIMOSSO</span>
-           <span class="actions-inline">
-             <button class="link" data-act="rename" data-id="${p.id}">Rinomina</button>
-           </span>`
-        : `<span class="actions-inline">
-             <button class="link" data-act="rename" data-id="${p.id}">Rinomina</button>
-             <button class="link danger" data-act="remove" data-id="${p.id}">Rimuovi</button>
-           </span>`;
-
-      return `
-        <div class="score-row ${isActive ? 'active' : ''} ${removed ? 'removed' : ''}">
-          <div class="name">
-            ${p.name}
-            ${actions}
-          </div>
+      const container = byId('scoreboard');
+      const rows = state.players.map(p => `
+        <div class="score-row ${state.activeIds.includes(p.id) ? 'active' : ''}">
+          <div class="name">${p.name}</div>
           <div class="total">${fmt(p.total)}</div>
         </div>
+      `).join('');
+      container.innerHTML = `
+        <div class="score-header">
+          <div class="name">Giocatore</div>
+          <div class="total">Totale</div>
+        </div>
+        ${rows}
       `;
-    }).join('');
-    container.innerHTML = `
-      <div class="score-header">
-        <div class="name">Giocatore</div>
-        <div class="total">Totale</div>
-      </div>
-      ${rows}
-    `;
-
-    // Delegazione eventi per pulsanti Rinomina/Rimuovi
-    container.querySelectorAll('button[data-act]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const id = e.currentTarget.getAttribute('data-id');
-        const act = e.currentTarget.getAttribute('data-act');
-        if (act === 'rename') openRenamePlayerDialog(id);
-        if (act === 'remove') removePlayer(id);
-      });
-    });
-
     }
 
     function renderActiveArea() {
       const chips = state.activeIds.map(id => `<span class="chip">${nameOf(id)}</span>`).join('');
       byId('active-players').innerHTML = chips;
-ensureActiveIntegrity();
-     
-const callerSel = byId('caller');
-const partnerSel = byId('partner');
-const options = state.activeIds.map(id => `<option value="${id}">${nameOf(id)}</option>`).join('');
-callerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
-partnerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
 
-// Aggiorna bench prossima mano
-updateBenchPreview()
+      const callerSel = byId('caller');
+      const partnerSel = byId('partner');
+      const options = state.activeIds.map(id => `<option value="${id}">${nameOf(id)}</option>`).join('');
+      callerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
+      partnerSel.innerHTML = `<option value="" disabled selected>Seleziona...</option>` + options;
 
+      updateBenchPreview();
     }
 
     function getWinnersValue() {
@@ -474,7 +354,7 @@ updateBenchPreview()
         return;
       }
       const poorIds = state.activeIds.filter(id => id !== callerId && id !== partnerId);
-    const bench = computeNextBench(nonRemovedPlayers().length, { callerId, partnerId, poorIds });
+      const bench = computeNextBench(state.players.length, { callerId, partnerId, poorIds });
       byId('bench-next').innerHTML = bench.length
         ? bench.map(id => `<span class="chip warn">${nameOf(id)}</span>`).join('')
         : `<span class="chip">Nessuno (siamo in 5)</span>`;
@@ -565,7 +445,9 @@ updateBenchPreview()
         if (pl) pl.total += val;
       }
 
-    const benchIds = computeNextBench(nonRemovedPlayers().length, { callerId, partnerId, poorIds });
+      const benchIds = computeNextBench(state.players.length, { callerId, partnerId, poorIds });
+      applyNextActiveFromBench(benchIds);
+
       const round = {
         id: crypto.randomUUID(),
         callValue, cappotto, winners,
@@ -600,21 +482,19 @@ updateBenchPreview()
       saveState();
     }
 
-    function openActiveDialog() 
-{
-  const dlg = byId('active-dialog');
-  const list = byId('active-dialog-list');
-  const selected = new Set(state.activeIds);
-  const items = nonRemovedPlayers().map(p => `
-    <label class="check">
-      <input type="checkbox" value="${p.id}" ${selected.has(p.id) ? 'checked' : ''} />
-      <span>${p.name}</span>
-    </label>
-  `).join('');
-  list.innerHTML = items;
-  dlg.showModal();
-}
-
+    function openActiveDialog() {
+      const dlg = byId('active-dialog');
+      const list = byId('active-dialog-list');
+      const selected = new Set(state.activeIds);
+      const items = state.players.map(p => `
+        <label class="check">
+          <input type="checkbox" value="${p.id}" ${selected.has(p.id) ? 'checked' : ''} />
+          <span>${p.name}</span>
+        </label>
+      `).join('');
+      list.innerHTML = items;
+      dlg.showModal();
+    }
     function confirmActiveDialog() {
       const dlg = byId('active-dialog');
       const ids = $$('#active-dialog-list input[type="checkbox"]:checked').map(i => i.value);
@@ -665,21 +545,6 @@ updateBenchPreview()
       };
       reader.readAsText(file);
     }
-    
-
-  const nonRemovedPlayers = () => state.players.filter(p => !p.removed);
-
-  function ensureActiveIntegrity() {
-    // Toglie dagli attivi eventuali rimossi
-    const allowed = new Set(nonRemovedPlayers().map(p => p.id));
-    state.activeIds = state.activeIds.filter(id => allowed.has(id));
-
-    // Se mancano giocatori per arrivare a 5 e ce ne sono disponibili, proponi il dialog
-    if (state.activeIds.length < 5 && nonRemovedPlayers().length >= 5) {
-      // Apri il dialog attivi per forzare la selezione a 5
-      openActiveDialog();
-    }
-  }
 
     /* ======= Events ======= */
     byId('player-count').addEventListener('change', initPlayersUI);
@@ -703,7 +568,6 @@ updateBenchPreview()
 
     // Init
     loadState();
-    migrateState();
     renderAll();
 
     // PWA / Service Worker (percorsi relativi per GitHub Pages)
@@ -715,4 +579,3 @@ updateBenchPreview()
   </script>
 </body>
 </html>
-
